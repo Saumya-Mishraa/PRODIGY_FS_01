@@ -1,259 +1,126 @@
-import React, { useRef, useState, useEffect, useLayoutEffect } from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  Paperclip,
-  Send,
-  Smile,
-  X,
-  AlertCircle,
-} from "lucide-react";
+import { Paperclip, Send, Smile, X, AlertCircle } from "lucide-react";
 import EmojiPicker from "emoji-picker-react";
 import api from "../services/api.js";
 
-const MessageInput = ({
-  onSend,
-  onTyping,
-  replyTo,
-  onCancelReply,
-}) => {
+const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
   const [text, setText] = useState("");
   const [showEmoji, setShowEmoji] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState("");
   const [sendPulse, setSendPulse] = useState(false);
-
-  const [emojiPosition, setEmojiPosition] = useState({
-    top: 0,
-    left: 0,
+  const [isMobile, setIsMobile] = useState(false);
+  const [pickerSize, setPickerSize] = useState({
     width: 320,
-    height: 380,
+    height: 360,
   });
 
   const fileRef = useRef(null);
+  const inputRef = useRef(null);
+  const inputRowRef = useRef(null);
   const typingTimeout = useRef(null);
   const errorTimeout = useRef(null);
-  const sendPulseTimeout = useRef(null);
-  const emojiBtnRef = useRef(null);
 
   const MAX_FILE_MB = 15;
 
-  /*
-   * Calculate the emoji picker's position from the actual emoji button.
-   *
-   * The picker is rendered with position: fixed, so it is positioned
-   * relative to the browser viewport instead of the chat/input container.
-   *
-   * This prevents mobile overflow when:
-   * - The chat panel is narrow
-   * - A sidebar is visible
-   * - The browser viewport is small
-   * - The input is inside another positioned element
-   */
-  const updateEmojiPosition = () => {
-    const button = emojiBtnRef.current;
-
-    if (!button) return;
-
-    const rect = button.getBoundingClientRect();
-
-    const viewportWidth = window.innerWidth;
-    const viewportHeight = window.innerHeight;
-
-    const horizontalPadding = 8;
-    const verticalPadding = 8;
-    const gap = 10;
-
-    /*
-     * Responsive picker width.
-     *
-     * Small phones:
-     *  - Use almost the full viewport width.
-     *
-     * Larger phones/tablets/desktops:
-     *  - Maximum 350px.
-     */
-    const pickerWidth = Math.min(
-      350,
-      Math.max(260, viewportWidth - horizontalPadding * 2)
-    );
-
-    /*
-     * Responsive height.
-     *
-     * Prevent the picker from becoming taller than the available
-     * viewport space.
-     */
-    const pickerHeight = Math.min(
-      420,
-      Math.max(280, viewportHeight * 0.55)
-    );
-
-    /*
-     * Try to align the picker to the right edge of the emoji button.
-     */
-    let left = rect.right - pickerWidth;
-
-    /*
-     * Keep picker inside the viewport horizontally.
-     */
-    left = Math.max(
-      horizontalPadding,
-      Math.min(
-        left,
-        viewportWidth - pickerWidth - horizontalPadding
-      )
-    );
-
-    /*
-     * Default: open ABOVE the emoji button.
-     */
-    let top = rect.top - pickerHeight - gap;
-
-    /*
-     * If there isn't enough space above,
-     * open BELOW the emoji button instead.
-     */
-    if (top < verticalPadding) {
-      top = rect.bottom + gap;
-    }
-
-    /*
-     * Keep picker inside the viewport vertically.
-     */
-    if (
-      top + pickerHeight >
-      viewportHeight - verticalPadding
-    ) {
-      top =
-        viewportHeight -
-        pickerHeight -
-        verticalPadding;
-    }
-
-    /*
-     * Final safety check for very short screens.
-     */
-    top = Math.max(verticalPadding, top);
-
-    setEmojiPosition({
-      top,
-      left,
-      width: pickerWidth,
-      height: pickerHeight,
-    });
-  };
-
-  /*
-   * Recalculate picker position whenever it opens.
-   */
-  useLayoutEffect(() => {
-    if (!showEmoji) return;
-
-    updateEmojiPosition();
-
-    const handleResize = () => {
-      updateEmojiPosition();
-    };
-
-    const handleScroll = () => {
-      updateEmojiPosition();
-    };
-
-    window.addEventListener(
-      "resize",
-      handleResize
-    );
-
-    window.addEventListener(
-      "orientationchange",
-      handleResize
-    );
-
-    window.addEventListener(
-      "scroll",
-      handleScroll,
-      true
-    );
-
-    return () => {
-      window.removeEventListener(
-        "resize",
-        handleResize
-      );
-
-      window.removeEventListener(
-        "orientationchange",
-        handleResize
-      );
-
-      window.removeEventListener(
-        "scroll",
-        handleScroll,
-        true
-      );
-    };
-  }, [showEmoji]);
-
-  /*
-   * Close emoji picker when clicking outside.
-   *
-   * The picker itself is rendered through the same component tree,
-   * so clicks inside it are ignored.
-   */
+  /* -------------------------------------------------------
+     Detect mobile viewport
+  ------------------------------------------------------- */
   useEffect(() => {
-    if (!showEmoji) return;
-
-    const handlePointerDown = (event) => {
-      const button = emojiBtnRef.current;
-
-      if (
-        button &&
-        button.contains(event.target)
-      ) {
-        return;
-      }
-
-      const picker = document.querySelector(
-        ".velora-emoji-picker"
-      );
-
-      if (
-        picker &&
-        picker.contains(event.target)
-      ) {
-        return;
-      }
-
-      setShowEmoji(false);
+    const updateMobile = () => {
+      setIsMobile(window.innerWidth < 640);
     };
 
-    document.addEventListener(
-      "pointerdown",
-      handlePointerDown
-    );
+    updateMobile();
+
+    window.addEventListener("resize", updateMobile);
 
     return () => {
-      document.removeEventListener(
-        "pointerdown",
-        handlePointerDown
-      );
-    };
-  }, [showEmoji]);
-
-  /*
-   * Clear timers on unmount.
-   */
-  useEffect(() => {
-    return () => {
-      clearTimeout(errorTimeout.current);
-      clearTimeout(typingTimeout.current);
-      clearTimeout(sendPulseTimeout.current);
+      window.removeEventListener("resize", updateMobile);
     };
   }, []);
 
-  const flashError = (message) => {
-    setUploadError(message);
+  /* -------------------------------------------------------
+     Responsive emoji picker sizing
+  ------------------------------------------------------- */
+  useEffect(() => {
+    const updatePickerSize = () => {
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
+
+      if (viewportWidth < 640) {
+        const width = Math.min(
+          360,
+          Math.max(280, viewportWidth - 24)
+        );
+
+        const height = Math.min(
+          390,
+          Math.max(300, viewportHeight * 0.48)
+        );
+
+        setPickerSize({
+          width,
+          height,
+        });
+      } else {
+        setPickerSize({
+          width: 350,
+          height: 420,
+        });
+      }
+    };
+
+    updatePickerSize();
+
+    window.addEventListener("resize", updatePickerSize);
+
+    return () => {
+      window.removeEventListener("resize", updatePickerSize);
+    };
+  }, []);
+
+  /* -------------------------------------------------------
+     Cleanup
+  ------------------------------------------------------- */
+  useEffect(() => {
+    return () => {
+      clearTimeout(typingTimeout.current);
+      clearTimeout(errorTimeout.current);
+    };
+  }, []);
+
+  /* -------------------------------------------------------
+     Escape / Back behaviour
+     If emoji picker is open, close it first.
+  ------------------------------------------------------- */
+  useEffect(() => {
+    if (!showEmoji) return;
+
+    const handleKeyDown = (e) => {
+      if (e.key === "Escape") {
+        setShowEmoji(false);
+
+        setTimeout(() => {
+          inputRef.current?.focus();
+        }, 50);
+      }
+    };
+
+    window.addEventListener("keydown", handleKeyDown);
+
+    return () => {
+      window.removeEventListener("keydown", handleKeyDown);
+    };
+  }, [showEmoji]);
+
+  /* -------------------------------------------------------
+     Error helper
+  ------------------------------------------------------- */
+  const flashError = (msg) => {
+    setUploadError(msg);
 
     clearTimeout(errorTimeout.current);
 
@@ -262,8 +129,11 @@ const MessageInput = ({
     }, 5000);
   };
 
-  const handleChange = (event) => {
-    const value = event.target.value;
+  /* -------------------------------------------------------
+     Text input
+  ------------------------------------------------------- */
+  const handleChange = (e) => {
+    const value = e.target.value;
 
     setText(value);
 
@@ -271,86 +141,131 @@ const MessageInput = ({
 
     clearTimeout(typingTimeout.current);
 
-    if (!value.trim()) {
-      onTyping?.(false);
-      return;
-    }
-
     typingTimeout.current = setTimeout(() => {
       onTyping?.(false);
     }, 1200);
   };
 
+  /* -------------------------------------------------------
+     Emoji selection
+  ------------------------------------------------------- */
   const handleEmojiClick = (emojiData) => {
-    setText(
-      (currentText) =>
-        currentText + emojiData.emoji
-    );
+    setText((currentText) => {
+      const input = inputRef.current;
+
+      if (!input) {
+        return currentText + emojiData.emoji;
+      }
+
+      const start = input.selectionStart ?? currentText.length;
+      const end = input.selectionEnd ?? currentText.length;
+
+      return (
+        currentText.slice(0, start) +
+        emojiData.emoji +
+        currentText.slice(end)
+      );
+    });
+
+    /*
+      After selecting emoji, keep the input focused.
+      This allows continuous typing just like WhatsApp.
+    */
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
   };
 
-  const submit = () => {
-    const trimmedText = text.trim();
+  /* -------------------------------------------------------
+     Open emoji picker
+  ------------------------------------------------------- */
+  const openEmojiPicker = () => {
+    const nextState = !showEmoji;
 
-    if (!trimmedText || uploading) {
-      return;
+    setShowEmoji(nextState);
+
+    if (nextState) {
+      /*
+        Hide native keyboard when opening emoji picker.
+        blur() is intentionally used only here.
+      */
+      inputRef.current?.blur();
+    } else {
+      /*
+        Closing emoji picker returns focus to input,
+        which opens the native mobile keyboard.
+      */
+      setTimeout(() => {
+        inputRef.current?.focus();
+      }, 80);
     }
+  };
+
+  /* -------------------------------------------------------
+     Submit text message
+  ------------------------------------------------------- */
+  const submit = () => {
+    if (!text.trim() || uploading) return;
 
     onSend({
       type: "text",
-      text: trimmedText,
+      text: text.trim(),
       replyTo: replyTo?._id || null,
     });
 
     setText("");
-    setShowEmoji(false);
 
-    clearTimeout(typingTimeout.current);
-    onTyping?.(false);
+    setShowEmoji(false);
 
     setSendPulse(true);
 
-    clearTimeout(sendPulseTimeout.current);
-
-    sendPulseTimeout.current = setTimeout(() => {
+    setTimeout(() => {
       setSendPulse(false);
     }, 220);
 
     onCancelReply?.();
+
+    /*
+      Keep input focused after sending.
+      Native keyboard stays open on mobile,
+      exactly like modern chat apps.
+    */
+    requestAnimationFrame(() => {
+      inputRef.current?.focus();
+    });
   };
 
-  const handleKeyDown = (event) => {
-    if (
-      event.key === "Enter" &&
-      !event.shiftKey
-    ) {
-      event.preventDefault();
+  /* -------------------------------------------------------
+     Enter = Send
+     Shift + Enter = New line
+  ------------------------------------------------------- */
+  const handleKeyDown = (e) => {
+    if (e.key === "Enter" && !e.shiftKey) {
+      e.preventDefault();
       submit();
     }
   };
 
-  const handleFile = async (event) => {
-    const file = event.target.files?.[0];
+  /* -------------------------------------------------------
+     File upload
+  ------------------------------------------------------- */
+  const handleFile = async (e) => {
+    const file = e.target.files?.[0];
 
-    if (!file) {
-      return;
-    }
+    if (!file) return;
 
-    if (
-      file.size >
-      MAX_FILE_MB * 1024 * 1024
-    ) {
+    if (file.size > MAX_FILE_MB * 1024 * 1024) {
       flashError(
         `"${file.name}" is over the ${MAX_FILE_MB}MB limit.`
       );
 
-      event.target.value = "";
+      e.target.value = "";
       return;
     }
 
     setUploading(true);
     setUploadProgress(0);
     setUploadError("");
-    setShowEmoji(false);
 
     try {
       const formData = new FormData();
@@ -362,29 +277,22 @@ const MessageInput = ({
         formData,
         {
           headers: {
-            "Content-Type":
-              "multipart/form-data",
+            "Content-Type": "multipart/form-data",
           },
 
-          onUploadProgress: (progressEvent) => {
-            if (!progressEvent.total) {
-              return;
-            }
+          onUploadProgress: (evt) => {
+            if (!evt.total) return;
 
             setUploadProgress(
               Math.round(
-                (progressEvent.loaded /
-                  progressEvent.total) *
-                  100
+                (evt.loaded / evt.total) * 100
               )
             );
           },
         }
       );
 
-      const type = file.type.startsWith(
-        "image/"
-      )
+      const type = file.type.startsWith("image/")
         ? "image"
         : "file";
 
@@ -395,9 +303,16 @@ const MessageInput = ({
       });
 
       onCancelReply?.();
-    } catch (error) {
+
+      /*
+        Return focus to input after attachment upload.
+      */
+      requestAnimationFrame(() => {
+        inputRef.current?.focus();
+      });
+    } catch (err) {
       const serverMessage =
-        error?.response?.data?.message;
+        err?.response?.data?.message;
 
       flashError(
         serverMessage ||
@@ -407,14 +322,24 @@ const MessageInput = ({
       setUploading(false);
       setUploadProgress(0);
 
-      event.target.value = "";
+      e.target.value = "";
     }
   };
 
   return (
-    <div className="relative flex-shrink-0 border-t border-white/5 bg-sidebar/60 backdrop-blur px-2.5 py-2.5 sm:px-4 sm:py-3">
-
-      {/* Upload Error */}
+    <div
+      className="
+        relative
+        border-t border-white/5
+        bg-sidebar/60
+        backdrop-blur
+        px-3 py-2.5
+        sm:px-4 sm:py-3
+      "
+    >
+      {/* -------------------------------------------------
+          Upload Error
+      ------------------------------------------------- */}
       <AnimatePresence>
         {uploadError && (
           <motion.div
@@ -441,7 +366,6 @@ const MessageInput = ({
               rounded-lg
               px-3 py-2
               mb-2
-              overflow-hidden
             "
           >
             <AlertCircle
@@ -449,23 +373,15 @@ const MessageInput = ({
               className="flex-shrink-0"
             />
 
-            <span className="flex-1 min-w-0 break-words">
+            <span className="flex-1 min-w-0">
               {uploadError}
             </span>
 
             <button
-              type="button"
-              onClick={() =>
-                setUploadError("")
-              }
-              aria-label="Dismiss error"
+              onClick={() => setUploadError("")}
               className="
                 flex-shrink-0
-                p-1
-                rounded-full
-                hover:bg-white/10
                 hover:text-red-100
-                transition-colors
               "
             >
               <X size={12} />
@@ -474,9 +390,19 @@ const MessageInput = ({
         )}
       </AnimatePresence>
 
-      {/* Upload Progress */}
+      {/* -------------------------------------------------
+          Upload Progress
+      ------------------------------------------------- */}
       {uploading && (
-        <div className="h-0.5 bg-white/5 rounded-full mb-2 overflow-hidden">
+        <div
+          className="
+            h-0.5
+            bg-white/5
+            rounded-full
+            mb-2
+            overflow-hidden
+          "
+        >
           <motion.div
             className="h-full bg-ember"
             initial={{
@@ -492,7 +418,9 @@ const MessageInput = ({
         </div>
       )}
 
-      {/* Reply Preview */}
+      {/* -------------------------------------------------
+          Reply Preview
+      ------------------------------------------------- */}
       <AnimatePresence>
         {replyTo && (
           <motion.div
@@ -509,16 +437,25 @@ const MessageInput = ({
               y: 8,
             }}
             className="
-              flex items-center gap-2
+              flex items-center
+              justify-between
               bg-chat
               rounded-lg
               px-3 py-2
               mb-2
-              border-l-2 border-ember
-              min-w-0
+              border-l-2
+              border-ember
             "
           >
-            <div className="flex-1 min-w-0 text-sm text-muted truncate">
+            <div
+              className="
+                text-sm
+                text-muted
+                truncate
+                min-w-0
+                pr-2
+              "
+            >
               Replying to{" "}
               <span className="text-ink">
                 {replyTo.text || "attachment"}
@@ -526,17 +463,11 @@ const MessageInput = ({
             </div>
 
             <button
-              type="button"
               onClick={onCancelReply}
-              aria-label="Cancel reply"
               className="
-                flex-shrink-0
-                p-1
-                rounded-full
                 text-muted
                 hover:text-ink
-                hover:bg-white/5
-                transition-colors
+                flex-shrink-0
               "
             >
               <X size={14} />
@@ -545,14 +476,16 @@ const MessageInput = ({
         )}
       </AnimatePresence>
 
-      {/* Input Row */}
+      {/* -------------------------------------------------
+          Main Input Row
+      ------------------------------------------------- */}
       <div
+        ref={inputRowRef}
         className="
-          relative
-          flex items-end
-          gap-1
+          flex
+          items-end
+          gap-1.5
           sm:gap-2
-          min-w-0
         "
       >
         {/* File Upload */}
@@ -562,24 +495,20 @@ const MessageInput = ({
             fileRef.current?.click()
           }
           disabled={uploading}
-          aria-label="Attach file"
-          title="Attach file"
           className="
-            flex-shrink-0
-            flex items-center justify-center
-            w-9 h-9
-            sm:w-10 sm:h-10
+            p-2
             rounded-full
             text-muted
             hover:text-ember
             hover:bg-white/5
-            active:bg-white/10
-            disabled:opacity-40
-            disabled:cursor-not-allowed
             transition-colors
+            flex-shrink-0
+            disabled:opacity-40
           "
+          title="Attach file"
+          aria-label="Attach file"
         >
-          <Paperclip size={19} />
+          <Paperclip size={20} />
         </button>
 
         <input
@@ -589,22 +518,37 @@ const MessageInput = ({
           onChange={handleFile}
         />
 
-        {/* Message Input */}
+        {/* -------------------------------------------------
+            Text Input
+        ------------------------------------------------- */}
         <div className="relative flex-1 min-w-0">
           <textarea
+            ref={inputRef}
             value={text}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
+            onFocus={() => {
+              /*
+                When user taps the input,
+                emoji picker should close and
+                native mobile keyboard should open.
+              */
+              if (showEmoji) {
+                setShowEmoji(false);
+              }
+            }}
             rows={1}
-            disabled={uploading}
+            inputMode="text"
+            enterKeyHint="send"
+            autoComplete="off"
+            autoCorrect="on"
+            spellCheck="true"
             placeholder={
               uploading
                 ? `Uploading… ${uploadProgress}%`
                 : "Type a message"
             }
-            aria-label="Message"
             className="
-              block
               w-full
               resize-none
               bg-chat
@@ -612,131 +556,170 @@ const MessageInput = ({
               focus:border-ember/50
               outline-none
               rounded-2xl
-              px-3
-              py-2.5
+              px-3.5 py-2.5
               sm:px-4
-              text-sm
-              sm:text-base
               text-ink
               placeholder:text-muted
               transition-colors
               max-h-32
-              overflow-y-auto
-              disabled:opacity-60
+              min-h-[42px]
             "
           />
         </div>
 
-        {/* Emoji Button */}
+        {/* -------------------------------------------------
+            Emoji Button
+        ------------------------------------------------- */}
         <button
-          ref={emojiBtnRef}
           type="button"
-          onClick={() => {
-            setShowEmoji((state) => !state);
-          }}
-          disabled={uploading}
-          aria-label="Open emoji picker"
-          title="Emoji"
+          onClick={openEmojiPicker}
           className={`
-            flex-shrink-0
-            flex items-center justify-center
-            w-9 h-9
-            sm:w-10 sm:h-10
+            p-2
             rounded-full
             transition-colors
-            disabled:opacity-40
-            disabled:cursor-not-allowed
+            flex-shrink-0
             ${
               showEmoji
                 ? "text-ember bg-white/10"
                 : "text-muted hover:text-amber hover:bg-white/5"
             }
           `}
+          title="Emoji"
+          aria-label="Emoji"
+          aria-expanded={showEmoji}
         >
-          <Smile size={19} />
+          <Smile size={20} />
         </button>
 
-        {/* Send Button */}
+        {/* -------------------------------------------------
+            Send Button
+        ------------------------------------------------- */}
         <motion.button
           type="button"
           animate={{
             scale: sendPulse ? 0.85 : 1,
           }}
           onClick={submit}
-          disabled={
-            !text.trim() || uploading
-          }
-          aria-label="Send message"
-          title="Send"
+          disabled={!text.trim() || uploading}
           className="
-            flex-shrink-0
-            flex items-center justify-center
-            w-9 h-9
-            sm:w-10 sm:h-10
+            p-2.5
             rounded-full
             bg-ember
             text-bg
             hover:brightness-110
-            active:scale-95
             transition-all
             disabled:opacity-40
-            disabled:cursor-not-allowed
+            flex-shrink-0
           "
+          title="Send"
+          aria-label="Send message"
         >
-          <Send size={17} />
+          <Send size={18} />
         </motion.button>
       </div>
 
-      {/* Emoji Picker */}
+      {/* -------------------------------------------------
+          Emoji Picker
+          IMPORTANT:
+          It is rendered outside the input's relative
+          container to prevent clipping and weird positioning.
+      ------------------------------------------------- */}
       <AnimatePresence>
         {showEmoji && (
-          <motion.div
-            initial={{
-              opacity: 0,
-              scale: 0.92,
-              y: 10,
-            }}
-            animate={{
-              opacity: 1,
-              scale: 1,
-              y: 0,
-            }}
-            exit={{
-              opacity: 0,
-              scale: 0.92,
-              y: 10,
-            }}
-            transition={{
-              type: "spring",
-              stiffness: 300,
-              damping: 24,
-            }}
-            className="velora-emoji-picker"
-            style={{
-              position: "fixed",
-              top: emojiPosition.top,
-              left: emojiPosition.left,
-              width: emojiPosition.width,
-              maxWidth: "calc(100vw - 16px)",
-              zIndex: 9999,
-              transformOrigin: "bottom right",
-            }}
-          >
-            <div className="w-full overflow-hidden rounded-2xl shadow-2xl">
-              <EmojiPicker
-                onEmojiClick={handleEmojiClick}
-                theme="dark"
-                searchDisabled={false}
-                skinTonesDisabled={false}
-                lazyLoadEmojis
-                width={emojiPosition.width}
-                height={emojiPosition.height}
-                previewConfig={{
-                  showPreview: false,
+          <>
+            {/* Mobile backdrop */}
+            {isMobile && (
+              <motion.div
+                initial={{
+                  opacity: 0,
                 }}
+                animate={{
+                  opacity: 1,
+                }}
+                exit={{
+                  opacity: 0,
+                }}
+                onClick={() => {
+                  setShowEmoji(false);
+
+                  setTimeout(() => {
+                    inputRef.current?.focus();
+                  }, 80);
+                }}
+                className="
+                  fixed
+                  inset-0
+                  z-[55]
+                  bg-black/10
+                  sm:hidden
+                "
               />
-            </div>
-          </motion.div>
+            )}
+
+            <motion.div
+              initial={{
+                opacity: 0,
+                y: 12,
+                scale: 0.96,
+              }}
+              animate={{
+                opacity: 1,
+                y: 0,
+                scale: 1,
+              }}
+              exit={{
+                opacity: 0,
+                y: 8,
+                scale: 0.96,
+              }}
+              transition={{
+                type: "spring",
+                stiffness: 350,
+                damping: 28,
+              }}
+              className={`
+                z-[60]
+                ${
+                  isMobile
+                    ? `
+                      fixed
+                      left-1/2
+                      -translate-x-1/2
+                      bottom-[76px]
+                    `
+                    : `
+                      absolute
+                      right-3
+                      bottom-[72px]
+                    `
+                }
+              `}
+            >
+              <div
+                className="
+                  rounded-2xl
+                  overflow-hidden
+                  shadow-2xl
+                  border border-white/10
+                "
+              >
+                <EmojiPicker
+                  onEmojiClick={
+                    handleEmojiClick
+                  }
+                  theme="dark"
+                  searchDisabled={false}
+                  skinTonesDisabled={false}
+                  lazyLoadEmojis
+                  width={pickerSize.width}
+                  height={pickerSize.height}
+                  previewConfig={{
+                    showPreview: false,
+                  }}
+                />
+              </div>
+            </motion.div>
+          </>
         )}
       </AnimatePresence>
     </div>
