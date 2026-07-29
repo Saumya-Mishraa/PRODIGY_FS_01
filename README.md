@@ -1,4 +1,3 @@
-<<<<<<< HEAD
 # Velora
 
 **Conversations, in real time.**
