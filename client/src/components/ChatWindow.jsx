@@ -15,53 +15,115 @@ const otherMember = (conversation, userId) =>
     ? conversation.members.find((m) => (m.id || m._id) !== userId)
     : null;
 
-const ChatWindow = ({ conversation, onlineUserIds, onBack, onOpenGroupDetails }) => {
+const ChatWindow = ({
+  conversation,
+  onlineUserIds,
+  onBack,
+  onOpenGroupDetails,
+}) => {
   const { user } = useAuth();
   const { socket, connectionState } = useSocket();
+
   const [messages, setMessages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [replyTo, setReplyTo] = useState(null);
   const [typingUser, setTypingUser] = useState(null);
+
   const bottomRef = useRef(null);
   const typingClearTimeout = useRef(null);
 
   useEffect(() => {
     if (!conversation) return;
+
     setLoading(true);
     setMessages([]);
+    setReplyTo(null);
+    setTypingUser(null);
+
     api
       .get(`/messages/${conversation._id}`)
-      .then(({ data }) => setMessages(data.messages))
-      .finally(() => setLoading(false));
+      .then(({ data }) => {
+        setMessages(data.messages || []);
+      })
+      .catch((error) => {
+        console.error("Failed to load messages:", error);
+        setMessages([]);
+      })
+      .finally(() => {
+        setLoading(false);
+      });
 
     socket?.emit("conversation:join", conversation._id);
-    socket?.emit("message:read", { conversationId: conversation._id });
+    socket?.emit("message:read", {
+      conversationId: conversation._id,
+    });
+
+    return () => {
+      clearTimeout(typingClearTimeout.current);
+    };
   }, [conversation, socket]);
 
   useEffect(() => {
-    if (!socket) return;
+    if (!socket || !conversation || !user) return;
 
     const handleNew = (message) => {
-      if (message.conversation !== conversation?._id) return;
+      const messageConversationId =
+        message.conversation?._id ||
+        message.conversation?.id ||
+        message.conversation;
+
+      if (String(messageConversationId) !== String(conversation._id)) {
+        return;
+      }
+
       setMessages((prev) => [...prev, message]);
-      socket.emit("message:read", { conversationId: conversation._id });
+
+      socket.emit("message:read", {
+        conversationId: conversation._id,
+      });
     };
 
     const handleTypingStart = ({ conversationId, userId }) => {
-      if (conversationId !== conversation?._id || userId === user.id) return;
+      if (
+        String(conversationId) !== String(conversation._id) ||
+        String(userId) === String(user.id)
+      ) {
+        return;
+      }
+
       const other = otherMember(conversation, user.id);
+
       setTypingUser(other?.name || "Someone");
+
       clearTimeout(typingClearTimeout.current);
-      typingClearTimeout.current = setTimeout(() => setTypingUser(null), 3000);
+
+      typingClearTimeout.current = setTimeout(() => {
+        setTypingUser(null);
+      }, 3000);
     };
 
     const handleTypingStop = ({ conversationId, userId }) => {
-      if (conversationId !== conversation?._id || userId === user.id) return;
+      if (
+        String(conversationId) !== String(conversation._id) ||
+        String(userId) === String(user.id)
+      ) {
+        return;
+      }
+
       setTypingUser(null);
     };
 
     const handleReaction = ({ messageId, reactions }) => {
-      setMessages((prev) => prev.map((m) => (m._id === messageId ? { ...m, reactions } : m)));
+      setMessages((prev) =>
+        prev.map((message) =>
+          message._id === messageId
+            ? {
+                ...message,
+                reactions,
+              }
+            : message
+        )
+      );
     };
 
     socket.on("message:new", handleNew);
@@ -78,123 +140,265 @@ const ChatWindow = ({ conversation, onlineUserIds, onBack, onOpenGroupDetails })
   }, [socket, conversation, user]);
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: "smooth" });
+    bottomRef.current?.scrollIntoView({
+      behavior: "smooth",
+      block: "nearest",
+    });
   }, [messages, typingUser]);
 
   if (!conversation) {
     return (
-      <div className="flex-1 flex items-center justify-center text-muted">
-        <div className="text-center">
-          <p className="font-display text-xl mb-1">Select a conversation</p>
-          <p className="text-sm">Choose a chat from the sidebar to start messaging.</p>
+      <div className="flex-1 min-w-0 flex items-center justify-center px-6 text-muted bg-chat">
+        <div className="text-center max-w-sm">
+          <p className="font-display text-lg sm:text-xl mb-1">
+            Select a conversation
+          </p>
+
+          <p className="text-sm leading-relaxed">
+            Choose a chat from the sidebar to start messaging.
+          </p>
         </div>
       </div>
     );
   }
 
-  const other = otherMember(conversation, user.id);
-  const label = conversation.isGroup ? conversation.name : other?.name;
-  const isOnline = other && onlineUserIds.has(String(other.id || other._id));
+  const other = otherMember(conversation, user?.id);
+
+  const label = conversation.isGroup
+    ? conversation.name || "Group"
+    : other?.name || "Unknown User";
+
+  const isOnline =
+    other &&
+    onlineUserIds?.has(String(other.id || other._id));
 
   const send = (payload) => {
-    socket?.emit("message:send", { conversationId: conversation._id, ...payload });
+    if (!socket || !conversation?._id) return;
+
+    socket.emit("message:send", {
+      conversationId: conversation._id,
+      ...payload,
+    });
   };
 
   const handleTyping = (isTyping) => {
-    socket?.emit(isTyping ? "typing:start" : "typing:stop", { conversationId: conversation._id });
-  };
+    if (!socket || !conversation?._id) return;
 
-  const handleDelete = async (message) => {
-    await api.delete(`/messages/single/${message._id}`);
-    setMessages((prev) =>
-      prev.map((m) => (m._id === message._id ? { ...m, deleted: true, text: "" } : m))
+    socket.emit(
+      isTyping ? "typing:start" : "typing:stop",
+      {
+        conversationId: conversation._id,
+      }
     );
   };
 
+  const handleDelete = async (message) => {
+    try {
+      await api.delete(`/messages/single/${message._id}`);
+
+      setMessages((prev) =>
+        prev.map((m) =>
+          m._id === message._id
+            ? {
+                ...m,
+                deleted: true,
+                text: "",
+              }
+            : m
+        )
+      );
+    } catch (error) {
+      console.error("Failed to delete message:", error);
+    }
+  };
+
   const handleReact = (message, emoji) => {
-    socket?.emit("message:react", { messageId: message._id, emoji });
+    if (!socket) return;
+
+    socket.emit("message:react", {
+      messageId: message._id,
+      emoji,
+    });
   };
 
   return (
-    <div className="flex-1 flex flex-col h-full bg-chat">
-      <div className="flex items-center gap-3 px-5 py-4 border-b border-white/5">
-        <button onClick={onBack} className="sm:hidden text-muted hover:text-ink">
+    <div className="flex-1 min-w-0 flex flex-col h-full min-h-0 bg-chat overflow-hidden">
+      {/* Chat Header */}
+      <div className="flex-shrink-0 flex items-center gap-2 sm:gap-3 px-3 sm:px-5 py-3 sm:py-4 border-b border-white/5">
+        {/* Mobile Back Button */}
+        <button
+          type="button"
+          onClick={onBack}
+          aria-label="Back to conversations"
+          className="sm:hidden flex-shrink-0 p-2 -ml-1 rounded-full text-muted hover:text-ink hover:bg-white/5 active:bg-white/10 transition-colors"
+        >
           <ArrowLeft size={20} />
         </button>
-        <div className="relative">
-          <Avatar name={label} src={conversation.isGroup ? conversation.avatar : other?.avatar} size={40} />
+
+        {/* Avatar */}
+        <div className="relative flex-shrink-0">
+          <Avatar
+            name={label}
+            src={
+              conversation.isGroup
+                ? conversation.avatar
+                : other?.avatar
+            }
+            size={40}
+          />
+
           {!conversation.isGroup && (
-            <OnlineIndicator online={isOnline} className="absolute -bottom-0.5 -right-0.5" />
+            <OnlineIndicator
+              online={isOnline}
+              className="absolute -bottom-0.5 -right-0.5"
+            />
           )}
         </div>
+
+        {/* User / Group Information */}
         <div className="flex-1 min-w-0">
-          <p className="font-medium truncate">{label}</p>
-          <p className="text-xs text-muted truncate">
+          <p className="font-medium truncate text-sm sm:text-base">
+            {label}
+          </p>
+
+          <p className="text-xs text-muted truncate mt-0.5">
             {conversation.isGroup
-              ? `${conversation.members.length} members`
+              ? `${conversation.members?.length || 0} members`
               : isOnline
               ? "Online"
               : other?.lastSeen
-              ? `Last seen ${new Date(other.lastSeen).toLocaleString()}`
+              ? `Last seen ${new Date(
+                  other.lastSeen
+                ).toLocaleString()}`
               : "Offline"}
           </p>
         </div>
 
-        <div className="flex items-center gap-1 text-xs text-muted mr-2">
-          {connectionState === "connected" && <Wifi size={14} className="text-online" />}
-          {connectionState === "connecting" && (
-            <Loader2 size={14} className="animate-spin text-amber" />
+        {/* Socket Connection Status */}
+        <div
+          className="flex items-center justify-center flex-shrink-0 text-xs text-muted"
+          title={`Connection: ${connectionState}`}
+        >
+          {connectionState === "connected" && (
+            <Wifi
+              size={15}
+              className="text-online"
+            />
           )}
-          {connectionState === "offline" && <WifiOff size={14} className="text-muted" />}
+
+          {connectionState === "connecting" && (
+            <Loader2
+              size={15}
+              className="animate-spin text-amber"
+            />
+          )}
+
+          {connectionState === "offline" && (
+            <WifiOff
+              size={15}
+              className="text-muted"
+            />
+          )}
         </div>
 
+        {/* Group Details */}
         {conversation.isGroup && (
           <button
+            type="button"
             onClick={onOpenGroupDetails}
-            className="p-2 rounded-full text-muted hover:text-ink hover:bg-white/5 transition-colors"
+            aria-label="Open group details"
+            className="flex-shrink-0 p-2 rounded-full text-muted hover:text-ink hover:bg-white/5 active:bg-white/10 transition-colors"
           >
             <Info size={18} />
           </button>
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto py-4">
+      {/* Messages Area */}
+      <div className="flex-1 min-h-0 overflow-y-auto overflow-x-hidden py-3 sm:py-4 scroll-smooth">
         {loading ? (
-          <div className="flex items-center justify-center h-full text-muted text-sm">
-            Loading messages…
+          <div className="flex items-center justify-center h-full px-6 text-muted text-sm">
+            <div className="flex items-center gap-2">
+              <Loader2
+                size={16}
+                className="animate-spin"
+              />
+              <span>Loading messages…</span>
+            </div>
           </div>
         ) : messages.length === 0 ? (
-          <div className="flex items-center justify-center h-full text-muted text-sm text-center px-8">
-            Say hello and start the conversation.
+          <div className="flex items-center justify-center h-full px-6 text-muted text-sm text-center">
+            <p className="max-w-xs leading-relaxed">
+              Say hello and start the conversation.
+            </p>
           </div>
         ) : (
           <AnimatePresence initial={false}>
-            {messages.map((m, i) => (
-              <MessageBubble
-                key={m._id}
-                message={m}
-                isOwn={(m.sender?._id || m.sender) === user.id}
-                showSender={
-                  conversation.isGroup &&
-                  (i === 0 || messages[i - 1].sender?._id !== m.sender?._id)
-                }
-                onReply={setReplyTo}
-                onDelete={handleDelete}
-                onReact={handleReact}
-              />
+            {messages.map((message, index) => (
+              <motion.div
+                key={message._id}
+                initial={{
+                  opacity: 0,
+                  y: 8,
+                }}
+                animate={{
+                  opacity: 1,
+                  y: 0,
+                }}
+                transition={{
+                  duration: 0.2,
+                }}
+              >
+                <MessageBubble
+                  message={message}
+                  isOwn={
+                    String(
+                      message.sender?._id ||
+                        message.sender
+                    ) === String(user?.id)
+                  }
+                  showSender={
+                    conversation.isGroup &&
+                    (
+                      index === 0 ||
+                      String(
+                        messages[index - 1].sender?._id ||
+                          messages[index - 1].sender
+                      ) !==
+                        String(
+                          message.sender?._id ||
+                            message.sender
+                        )
+                    )
+                  }
+                  onReply={setReplyTo}
+                  onDelete={handleDelete}
+                  onReact={handleReact}
+                />
+              </motion.div>
             ))}
           </AnimatePresence>
         )}
-        {typingUser && <TypingIndicator name={typingUser} />}
+
+        {/* Typing Indicator */}
+        {typingUser && (
+          <TypingIndicator
+            name={typingUser}
+          />
+        )}
+
         <div ref={bottomRef} />
       </div>
 
-      <MessageInput
-        onSend={send}
-        onTyping={handleTyping}
-        replyTo={replyTo}
-        onCancelReply={() => setReplyTo(null)}
-      />
+      {/* Message Input */}
+      <div className="flex-shrink-0">
+        <MessageInput
+          onSend={send}
+          onTyping={handleTyping}
+          replyTo={replyTo}
+          onCancelReply={() => setReplyTo(null)}
+        />
+      </div>
     </div>
   );
 };

@@ -8,37 +8,76 @@ const colors = [
   "rgb(var(--color-avatar-5))",
 ];
 
-const initials = (name = "?") =>
-  name
-    .split(" ")
-    .map((n) => n[0])
+const initials = (name = "?") => {
+  const safeName = String(name || "?").trim();
+
+  if (!safeName) {
+    return "?";
+  }
+
+  return safeName
+    .split(/\s+/)
+    .filter(Boolean)
+    .map((word) => word.charAt(0))
     .join("")
     .slice(0, 2)
     .toUpperCase();
-
-const colorFor = (seed = "") => {
-  const idx = seed.split("").reduce((acc, c) => acc + c.charCodeAt(0), 0) % colors.length;
-  return colors[idx];
 };
 
-const Avatar = ({ src, name, size = 40, className = "" }) => {
-  const dim = { width: size, height: size };
+const colorFor = (seed = "") => {
+  const safeSeed = String(seed || "?");
+
+  const index =
+    safeSeed.split("").reduce((acc, char) => {
+      return acc + char.charCodeAt(0);
+    }, 0) % colors.length;
+
+  return colors[index];
+};
+
+const Avatar = ({
+  src,
+  name = "User",
+  size = 40,
+  className = "",
+}) => {
+  const safeSize = Number(size) || 40;
+
+  const dimensions = {
+    width: `${safeSize}px`,
+    height: `${safeSize}px`,
+    minWidth: `${safeSize}px`,
+    minHeight: `${safeSize}px`,
+  };
+
   if (src) {
     return (
       <img
         src={src}
-        alt={name}
-        style={dim}
+        alt={`${name}'s avatar`}
+        style={dimensions}
         className={`rounded-full object-cover flex-shrink-0 ${className}`}
       />
     );
   }
+
   return (
     <div
-      style={{ ...dim, background: colorFor(name) }}
-      className={`rounded-full flex items-center justify-center flex-shrink-0 text-bg font-display font-semibold ${className}`}
+      style={{
+        ...dimensions,
+        background: colorFor(name),
+      }}
+      className={`rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden text-bg font-display font-semibold select-none ${className}`}
+      aria-label={`${name}'s avatar`}
     >
-      <span style={{ fontSize: size * 0.4 }}>{initials(name)}</span>
+      <span
+        style={{
+          fontSize: `${Math.max(safeSize * 0.4, 10)}px`,
+          lineHeight: 1,
+        }}
+      >
+        {initials(name)}
+      </span>
     </div>
   );
 };
