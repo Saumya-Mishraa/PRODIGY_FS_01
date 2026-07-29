@@ -1,4 +1,4 @@
-import React, { useRef, useState, useEffect } from "react";
+import React, { useRef, useState, useEffect, useLayoutEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Paperclip,
@@ -22,46 +22,65 @@ const MessageInput = ({
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState("");
   const [sendPulse, setSendPulse] = useState(false);
-  const [pickerWidth, setPickerWidth] = useState(300);
-  const [pickerHeight, setPickerHeight] = useState(420);
+
+  // Picker sizing/position is now derived from the actual wrapper element
+  // (the chat panel), not the whole browser viewport. This is what keeps
+  // it correctly placed on tablets/laptops where the chat panel doesn't
+  // span the full screen width (e.g. sits next to a sidebar).
+  const [pickerSize, setPickerSize] = useState({
+    width: 300,
+    height: 380,
+    right: 8,
+  });
 
   const fileRef = useRef(null);
   const typingTimeout = useRef(null);
   const inputRowRef = useRef(null);
   const errorTimeout = useRef(null);
   const sendPulseTimeout = useRef(null);
+  const wrapperRef = useRef(null);
+  const emojiBtnRef = useRef(null);
 
   /*
    * Responsive Emoji Picker sizing.
    *
-   * On mobile:
-   * - Keep the picker inside the viewport (width AND height).
-   * - Use almost the full available screen width.
-   *
-   * On tablet:
-   * - Slightly wider, comfortable width, capped so it doesn't look stretched.
-   *
-   * On desktop:
-   * - Keep the picker at a comfortable fixed width.
+   * Measured against the wrapper (the chat panel itself), so the picker
+   * always fits inside whatever space the chat UI actually occupies —
+   * whether that's a full-width mobile screen, a split-view tablet layout,
+   * or a chat panel next to a sidebar on desktop.
    */
-  useEffect(() => {
+  useLayoutEffect(() => {
     const measure = () => {
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
+      const wrapperEl = wrapperRef.current;
 
-      if (viewportWidth <= 380) {
-        // Small phones
-        setPickerWidth(Math.max(280, viewportWidth - 24));
-      } else if (viewportWidth <= 768) {
-        // Larger phones / tablets in portrait
-        setPickerWidth(Math.min(360, viewportWidth - 32));
-      } else {
-        // Tablets landscape / laptops / desktop
-        setPickerWidth(Math.min(380, viewportWidth - 48));
+      if (!wrapperEl) {
+        return;
       }
 
-      // Keep the picker from overflowing short/landscape viewports.
-      setPickerHeight(Math.min(420, viewportHeight - 140));
+      const wrapperRect = wrapperEl.getBoundingClientRect();
+      const viewportHeight = window.innerHeight;
+
+      // Never exceed the wrapper's own width (minus a small margin),
+      // and never exceed a comfortable max on large screens.
+      const margin = 16;
+      const maxByWrapper = wrapperRect.width - margin * 2;
+      const width = Math.max(
+        260,
+        Math.min(350, maxByWrapper)
+      );
+
+      // Anchor the picker's right edge a fixed margin in from the
+      // wrapper's right edge (roughly under the emoji/send buttons).
+      const right = margin;
+
+      // Cap height so short/landscape viewports never get a picker
+      // that's cut off above the visible area.
+      const maxHeight = Math.min(
+        420,
+        Math.max(260, viewportHeight * 0.5)
+      );
+
+      setPickerSize({ width, height: maxHeight, right });
     };
 
     measure();
@@ -73,7 +92,7 @@ const MessageInput = ({
       window.removeEventListener("resize", measure);
       window.removeEventListener("orientationchange", measure);
     };
-  }, []);
+  }, [showEmoji]);
 
   /*
    * Clear timers when component unmounts.
@@ -255,7 +274,10 @@ const MessageInput = ({
   };
 
   return (
-    <div className="relative flex-shrink-0 border-t border-white/5 bg-sidebar/60 backdrop-blur px-2.5 py-2.5 sm:px-4 sm:py-3">
+    <div
+      ref={wrapperRef}
+      className="relative flex-shrink-0 border-t border-white/5 bg-sidebar/60 backdrop-blur px-2.5 py-2.5 sm:px-4 sm:py-3"
+    >
       {/* Upload Error */}
       <AnimatePresence>
         {uploadError && (
@@ -280,11 +302,9 @@ const MessageInput = ({
               border border-red-500/20
               text-red-300
               text-xs
-              sm:text-sm
               rounded-lg
               px-3 py-2
               mb-2
-              sm:mb-3
               overflow-hidden
             "
           >
@@ -320,7 +340,7 @@ const MessageInput = ({
 
       {/* Upload Progress */}
       {uploading && (
-        <div className="h-0.5 bg-white/5 rounded-full mb-2 sm:mb-3 overflow-hidden">
+        <div className="h-0.5 bg-white/5 rounded-full mb-2 overflow-hidden">
           <motion.div
             className="h-full bg-ember"
             initial={{
@@ -358,7 +378,6 @@ const MessageInput = ({
               rounded-lg
               px-3 py-2
               mb-2
-              sm:mb-3
               border-l-2 border-ember
               min-w-0
             "
@@ -411,11 +430,10 @@ const MessageInput = ({
           aria-label="Attach file"
           title="Attach file"
           className="
-            shrink-0
+            flex-shrink-0
             flex items-center justify-center
             w-9 h-9
             sm:w-10 sm:h-10
-            md:w-11 md:h-11
             rounded-full
             text-muted
             hover:text-ember
@@ -468,7 +486,6 @@ const MessageInput = ({
               placeholder:text-muted
               transition-colors
               max-h-32
-              md:max-h-40
               overflow-y-auto
               disabled:opacity-60
             "
@@ -477,6 +494,7 @@ const MessageInput = ({
 
         {/* Emoji Button */}
         <button
+          ref={emojiBtnRef}
           type="button"
           onClick={() =>
             setShowEmoji(
@@ -487,11 +505,10 @@ const MessageInput = ({
           aria-label="Open emoji picker"
           title="Emoji"
           className={`
-            shrink-0
+            flex-shrink-0
             flex items-center justify-center
             w-9 h-9
             sm:w-10 sm:h-10
-            md:w-11 md:h-11
             rounded-full
             transition-colors
             disabled:opacity-40
@@ -519,11 +536,10 @@ const MessageInput = ({
           aria-label="Send message"
           title="Send"
           className="
-            shrink-0
+            flex-shrink-0
             flex items-center justify-center
             w-9 h-9
             sm:w-10 sm:h-10
-            md:w-11 md:h-11
             rounded-full
             bg-ember
             text-bg
@@ -562,17 +578,22 @@ const MessageInput = ({
               stiffness: 300,
               damping: 24,
             }}
+            // absolute + anchored to the wrapper (the chat panel), NOT
+            // fixed to the viewport. This is the key fix: "fixed" +
+            // "left-1/2 -translate-x-1/2" centers on the whole browser
+            // window, which breaks as soon as the chat panel isn't the
+            // full window width (tablets/laptops with a sidebar) and
+            // also caused the overflow/cutoff seen on mobile because the
+            // picker library doesn't always honor width="100%" cleanly.
             style={{
-              width: pickerWidth,
-              maxWidth: "calc(100vw - 24px)",
+              position: "absolute",
+              bottom: "100%",
+              right: pickerSize.right,
+              marginBottom: 8,
+              width: pickerSize.width,
+              maxWidth: `calc(100% - ${pickerSize.right * 2}px)`,
+              zIndex: 100,
             }}
-            className="
-              fixed
-              bottom-[72px]
-              left-1/2
-              -translate-x-1/2
-              z-[100]
-            "
           >
             <div className="w-full overflow-hidden rounded-2xl shadow-2xl">
               <EmojiPicker
@@ -581,8 +602,8 @@ const MessageInput = ({
                 searchDisabled={false}
                 skinTonesDisabled={false}
                 lazyLoadEmojis
-                width="100%"
-                height={pickerHeight}
+                width={pickerSize.width}
+                height={pickerSize.height}
                 previewConfig={{
                   showPreview: false,
                 }}
