@@ -1,3 +1,4 @@
+<<<<<<< HEAD
 # Velora
 
 **Conversations, in real time.**
@@ -290,3 +291,7 @@ public URL instead).
 ---
 
 Built as a complete, runnable full-stack project — not a mockup.
+=======
+# PRODIGY_FS_01
+Task 1 - Full Stack Web Development Internship at Prodigy InfoTech
+>>>>>>> 51edc9d37d2061654d3a3473e655f48d852b583d
