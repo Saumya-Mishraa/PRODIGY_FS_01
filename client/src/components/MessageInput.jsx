@@ -23,7 +23,7 @@ const MessageInput = ({
   const [uploadError, setUploadError] = useState("");
   const [sendPulse, setSendPulse] = useState(false);
   const [pickerWidth, setPickerWidth] = useState(300);
-  const [isMobile, setIsMobile] = useState(false);
+  const [pickerHeight, setPickerHeight] = useState(420);
 
   const fileRef = useRef(null);
   const typingTimeout = useRef(null);
@@ -35,33 +35,45 @@ const MessageInput = ({
    * Responsive Emoji Picker sizing.
    *
    * On mobile:
-   * - Keep the picker inside the viewport.
+   * - Keep the picker inside the viewport (width AND height).
    * - Use almost the full available screen width.
+   *
+   * On tablet:
+   * - Slightly wider, comfortable width, capped so it doesn't look stretched.
    *
    * On desktop:
    * - Keep the picker at a comfortable fixed width.
    */
- useEffect(() => {
-  const measure = () => {
-    const viewportWidth = window.innerWidth;
+  useEffect(() => {
+    const measure = () => {
+      const viewportWidth = window.innerWidth;
+      const viewportHeight = window.innerHeight;
 
-    // Keep picker safely inside the viewport on mobile.
-    // Desktop gets a comfortable 350px width.
-    if (viewportWidth <= 380) {
-      setPickerWidth(Math.max(280, viewportWidth - 24));
-    } else {
-      setPickerWidth(Math.min(350, viewportWidth - 24));
-    }
-  };
+      if (viewportWidth <= 380) {
+        // Small phones
+        setPickerWidth(Math.max(280, viewportWidth - 24));
+      } else if (viewportWidth <= 768) {
+        // Larger phones / tablets in portrait
+        setPickerWidth(Math.min(360, viewportWidth - 32));
+      } else {
+        // Tablets landscape / laptops / desktop
+        setPickerWidth(Math.min(380, viewportWidth - 48));
+      }
 
-  measure();
+      // Keep the picker from overflowing short/landscape viewports.
+      setPickerHeight(Math.min(420, viewportHeight - 140));
+    };
 
-  window.addEventListener("resize", measure);
+    measure();
 
-  return () => {
-    window.removeEventListener("resize", measure);
-  };
-}, []);
+    window.addEventListener("resize", measure);
+    window.addEventListener("orientationchange", measure);
+
+    return () => {
+      window.removeEventListener("resize", measure);
+      window.removeEventListener("orientationchange", measure);
+    };
+  }, []);
 
   /*
    * Clear timers when component unmounts.
@@ -268,9 +280,11 @@ const MessageInput = ({
               border border-red-500/20
               text-red-300
               text-xs
+              sm:text-sm
               rounded-lg
               px-3 py-2
               mb-2
+              sm:mb-3
               overflow-hidden
             "
           >
@@ -306,7 +320,7 @@ const MessageInput = ({
 
       {/* Upload Progress */}
       {uploading && (
-        <div className="h-0.5 bg-white/5 rounded-full mb-2 overflow-hidden">
+        <div className="h-0.5 bg-white/5 rounded-full mb-2 sm:mb-3 overflow-hidden">
           <motion.div
             className="h-full bg-ember"
             initial={{
@@ -344,6 +358,7 @@ const MessageInput = ({
               rounded-lg
               px-3 py-2
               mb-2
+              sm:mb-3
               border-l-2 border-ember
               min-w-0
             "
@@ -396,10 +411,11 @@ const MessageInput = ({
           aria-label="Attach file"
           title="Attach file"
           className="
-            flex-shrink-0
+            shrink-0
             flex items-center justify-center
             w-9 h-9
             sm:w-10 sm:h-10
+            md:w-11 md:h-11
             rounded-full
             text-muted
             hover:text-ember
@@ -452,6 +468,7 @@ const MessageInput = ({
               placeholder:text-muted
               transition-colors
               max-h-32
+              md:max-h-40
               overflow-y-auto
               disabled:opacity-60
             "
@@ -470,10 +487,11 @@ const MessageInput = ({
           aria-label="Open emoji picker"
           title="Emoji"
           className={`
-            flex-shrink-0
+            shrink-0
             flex items-center justify-center
             w-9 h-9
             sm:w-10 sm:h-10
+            md:w-11 md:h-11
             rounded-full
             transition-colors
             disabled:opacity-40
@@ -501,10 +519,11 @@ const MessageInput = ({
           aria-label="Send message"
           title="Send"
           className="
-            flex-shrink-0
+            shrink-0
             flex items-center justify-center
             w-9 h-9
             sm:w-10 sm:h-10
+            md:w-11 md:h-11
             rounded-full
             bg-ember
             text-bg
@@ -521,54 +540,56 @@ const MessageInput = ({
 
       {/* Emoji Picker */}
       <AnimatePresence>
-      {showEmoji && (
-  <motion.div
-    initial={{
-      opacity: 0,
-      scale: 0.92,
-      y: 10,
-    }}
-    animate={{
-      opacity: 1,
-      scale: 1,
-      y: 0,
-    }}
-    exit={{
-      opacity: 0,
-      scale: 0.92,
-      y: 10,
-    }}
-    transition={{
-      type: "spring",
-      stiffness: 300,
-      damping: 24,
-    }}
-    className="
-      fixed
-      bottom-[72px]
-      left-1/2
-      -translate-x-1/2
-      z-[100]
-      w-[calc(100vw-24px)]
-      max-w-[350px]
-    "
-  >
-    <div className="w-full overflow-hidden rounded-2xl shadow-2xl">
-      <EmojiPicker
-        onEmojiClick={handleEmojiClick}
-        theme="dark"
-        searchDisabled={false}
-        skinTonesDisabled={false}
-        lazyLoadEmojis
-        width="100%"
-        height={Math.min(420, pickerWidth * 1.2)}
-        previewConfig={{
-          showPreview: false,
-        }}
-      />
-    </div>
-  </motion.div>
-)}
+        {showEmoji && (
+          <motion.div
+            initial={{
+              opacity: 0,
+              scale: 0.92,
+              y: 10,
+            }}
+            animate={{
+              opacity: 1,
+              scale: 1,
+              y: 0,
+            }}
+            exit={{
+              opacity: 0,
+              scale: 0.92,
+              y: 10,
+            }}
+            transition={{
+              type: "spring",
+              stiffness: 300,
+              damping: 24,
+            }}
+            style={{
+              width: pickerWidth,
+              maxWidth: "calc(100vw - 24px)",
+            }}
+            className="
+              fixed
+              bottom-[72px]
+              left-1/2
+              -translate-x-1/2
+              z-[100]
+            "
+          >
+            <div className="w-full overflow-hidden rounded-2xl shadow-2xl">
+              <EmojiPicker
+                onEmojiClick={handleEmojiClick}
+                theme="dark"
+                searchDisabled={false}
+                skinTonesDisabled={false}
+                lazyLoadEmojis
+                width="100%"
+                height={pickerHeight}
+                previewConfig={{
+                  showPreview: false,
+                }}
+              />
+            </div>
+          </motion.div>
+        )}
       </AnimatePresence>
     </div>
   );
