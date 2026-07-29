@@ -23,79 +23,226 @@ const MessageInput = ({
   const [uploadError, setUploadError] = useState("");
   const [sendPulse, setSendPulse] = useState(false);
 
-  // Picker sizing/position is now derived from the actual wrapper element
-  // (the chat panel), not the whole browser viewport. This is what keeps
-  // it correctly placed on tablets/laptops where the chat panel doesn't
-  // span the full screen width (e.g. sits next to a sidebar).
-  const [pickerSize, setPickerSize] = useState({
-    width: 300,
+  const [emojiPosition, setEmojiPosition] = useState({
+    top: 0,
+    left: 0,
+    width: 320,
     height: 380,
-    right: 8,
   });
 
   const fileRef = useRef(null);
   const typingTimeout = useRef(null);
-  const inputRowRef = useRef(null);
   const errorTimeout = useRef(null);
   const sendPulseTimeout = useRef(null);
-  const wrapperRef = useRef(null);
   const emojiBtnRef = useRef(null);
 
+  const MAX_FILE_MB = 15;
+
   /*
-   * Responsive Emoji Picker sizing.
+   * Calculate the emoji picker's position from the actual emoji button.
    *
-   * Measured against the wrapper (the chat panel itself), so the picker
-   * always fits inside whatever space the chat UI actually occupies —
-   * whether that's a full-width mobile screen, a split-view tablet layout,
-   * or a chat panel next to a sidebar on desktop.
+   * The picker is rendered with position: fixed, so it is positioned
+   * relative to the browser viewport instead of the chat/input container.
+   *
+   * This prevents mobile overflow when:
+   * - The chat panel is narrow
+   * - A sidebar is visible
+   * - The browser viewport is small
+   * - The input is inside another positioned element
+   */
+  const updateEmojiPosition = () => {
+    const button = emojiBtnRef.current;
+
+    if (!button) return;
+
+    const rect = button.getBoundingClientRect();
+
+    const viewportWidth = window.innerWidth;
+    const viewportHeight = window.innerHeight;
+
+    const horizontalPadding = 8;
+    const verticalPadding = 8;
+    const gap = 10;
+
+    /*
+     * Responsive picker width.
+     *
+     * Small phones:
+     *  - Use almost the full viewport width.
+     *
+     * Larger phones/tablets/desktops:
+     *  - Maximum 350px.
+     */
+    const pickerWidth = Math.min(
+      350,
+      Math.max(260, viewportWidth - horizontalPadding * 2)
+    );
+
+    /*
+     * Responsive height.
+     *
+     * Prevent the picker from becoming taller than the available
+     * viewport space.
+     */
+    const pickerHeight = Math.min(
+      420,
+      Math.max(280, viewportHeight * 0.55)
+    );
+
+    /*
+     * Try to align the picker to the right edge of the emoji button.
+     */
+    let left = rect.right - pickerWidth;
+
+    /*
+     * Keep picker inside the viewport horizontally.
+     */
+    left = Math.max(
+      horizontalPadding,
+      Math.min(
+        left,
+        viewportWidth - pickerWidth - horizontalPadding
+      )
+    );
+
+    /*
+     * Default: open ABOVE the emoji button.
+     */
+    let top = rect.top - pickerHeight - gap;
+
+    /*
+     * If there isn't enough space above,
+     * open BELOW the emoji button instead.
+     */
+    if (top < verticalPadding) {
+      top = rect.bottom + gap;
+    }
+
+    /*
+     * Keep picker inside the viewport vertically.
+     */
+    if (
+      top + pickerHeight >
+      viewportHeight - verticalPadding
+    ) {
+      top =
+        viewportHeight -
+        pickerHeight -
+        verticalPadding;
+    }
+
+    /*
+     * Final safety check for very short screens.
+     */
+    top = Math.max(verticalPadding, top);
+
+    setEmojiPosition({
+      top,
+      left,
+      width: pickerWidth,
+      height: pickerHeight,
+    });
+  };
+
+  /*
+   * Recalculate picker position whenever it opens.
    */
   useLayoutEffect(() => {
-    const measure = () => {
-      const wrapperEl = wrapperRef.current;
+    if (!showEmoji) return;
 
-      if (!wrapperEl) {
-        return;
-      }
+    updateEmojiPosition();
 
-      const wrapperRect = wrapperEl.getBoundingClientRect();
-      const viewportHeight = window.innerHeight;
-
-      // Never exceed the wrapper's own width (minus a small margin),
-      // and never exceed a comfortable max on large screens.
-      const margin = 16;
-      const maxByWrapper = wrapperRect.width - margin * 2;
-      const width = Math.max(
-        260,
-        Math.min(350, maxByWrapper)
-      );
-
-      // Anchor the picker's right edge a fixed margin in from the
-      // wrapper's right edge (roughly under the emoji/send buttons).
-      const right = margin;
-
-      // Cap height so short/landscape viewports never get a picker
-      // that's cut off above the visible area.
-      const maxHeight = Math.min(
-        420,
-        Math.max(260, viewportHeight * 0.5)
-      );
-
-      setPickerSize({ width, height: maxHeight, right });
+    const handleResize = () => {
+      updateEmojiPosition();
     };
 
-    measure();
+    const handleScroll = () => {
+      updateEmojiPosition();
+    };
 
-    window.addEventListener("resize", measure);
-    window.addEventListener("orientationchange", measure);
+    window.addEventListener(
+      "resize",
+      handleResize
+    );
+
+    window.addEventListener(
+      "orientationchange",
+      handleResize
+    );
+
+    window.addEventListener(
+      "scroll",
+      handleScroll,
+      true
+    );
 
     return () => {
-      window.removeEventListener("resize", measure);
-      window.removeEventListener("orientationchange", measure);
+      window.removeEventListener(
+        "resize",
+        handleResize
+      );
+
+      window.removeEventListener(
+        "orientationchange",
+        handleResize
+      );
+
+      window.removeEventListener(
+        "scroll",
+        handleScroll,
+        true
+      );
     };
   }, [showEmoji]);
 
   /*
-   * Clear timers when component unmounts.
+   * Close emoji picker when clicking outside.
+   *
+   * The picker itself is rendered through the same component tree,
+   * so clicks inside it are ignored.
+   */
+  useEffect(() => {
+    if (!showEmoji) return;
+
+    const handlePointerDown = (event) => {
+      const button = emojiBtnRef.current;
+
+      if (
+        button &&
+        button.contains(event.target)
+      ) {
+        return;
+      }
+
+      const picker = document.querySelector(
+        ".velora-emoji-picker"
+      );
+
+      if (
+        picker &&
+        picker.contains(event.target)
+      ) {
+        return;
+      }
+
+      setShowEmoji(false);
+    };
+
+    document.addEventListener(
+      "pointerdown",
+      handlePointerDown
+    );
+
+    return () => {
+      document.removeEventListener(
+        "pointerdown",
+        handlePointerDown
+      );
+    };
+  }, [showEmoji]);
+
+  /*
+   * Clear timers on unmount.
    */
   useEffect(() => {
     return () => {
@@ -172,10 +319,6 @@ const MessageInput = ({
   };
 
   const handleKeyDown = (event) => {
-    /*
-     * Enter = Send
-     * Shift + Enter = New line
-     */
     if (
       event.key === "Enter" &&
       !event.shiftKey
@@ -184,8 +327,6 @@ const MessageInput = ({
       submit();
     }
   };
-
-  const MAX_FILE_MB = 15;
 
   const handleFile = async (event) => {
     const file = event.target.files?.[0];
@@ -266,18 +407,13 @@ const MessageInput = ({
       setUploading(false);
       setUploadProgress(0);
 
-      /*
-       * Allows the user to select the same file again.
-       */
       event.target.value = "";
     }
   };
 
   return (
-    <div
-      ref={wrapperRef}
-      className="relative flex-shrink-0 border-t border-white/5 bg-sidebar/60 backdrop-blur px-2.5 py-2.5 sm:px-4 sm:py-3"
-    >
+    <div className="relative flex-shrink-0 border-t border-white/5 bg-sidebar/60 backdrop-blur px-2.5 py-2.5 sm:px-4 sm:py-3">
+
       {/* Upload Error */}
       <AnimatePresence>
         {uploadError && (
@@ -411,7 +547,6 @@ const MessageInput = ({
 
       {/* Input Row */}
       <div
-        ref={inputRowRef}
         className="
           relative
           flex items-end
@@ -420,7 +555,7 @@ const MessageInput = ({
           min-w-0
         "
       >
-        {/* File Upload Button */}
+        {/* File Upload */}
         <button
           type="button"
           onClick={() =>
@@ -454,7 +589,7 @@ const MessageInput = ({
           onChange={handleFile}
         />
 
-        {/* Text Input */}
+        {/* Message Input */}
         <div className="relative flex-1 min-w-0">
           <textarea
             value={text}
@@ -496,11 +631,9 @@ const MessageInput = ({
         <button
           ref={emojiBtnRef}
           type="button"
-          onClick={() =>
-            setShowEmoji(
-              (state) => !state
-            )
-          }
+          onClick={() => {
+            setShowEmoji((state) => !state);
+          }}
           disabled={uploading}
           aria-label="Open emoji picker"
           title="Emoji"
@@ -578,21 +711,15 @@ const MessageInput = ({
               stiffness: 300,
               damping: 24,
             }}
-            // absolute + anchored to the wrapper (the chat panel), NOT
-            // fixed to the viewport. This is the key fix: "fixed" +
-            // "left-1/2 -translate-x-1/2" centers on the whole browser
-            // window, which breaks as soon as the chat panel isn't the
-            // full window width (tablets/laptops with a sidebar) and
-            // also caused the overflow/cutoff seen on mobile because the
-            // picker library doesn't always honor width="100%" cleanly.
+            className="velora-emoji-picker"
             style={{
-              position: "absolute",
-              bottom: "100%",
-              right: pickerSize.right,
-              marginBottom: 8,
-              width: pickerSize.width,
-              maxWidth: `calc(100% - ${pickerSize.right * 2}px)`,
-              zIndex: 100,
+              position: "fixed",
+              top: emojiPosition.top,
+              left: emojiPosition.left,
+              width: emojiPosition.width,
+              maxWidth: "calc(100vw - 16px)",
+              zIndex: 9999,
+              transformOrigin: "bottom right",
             }}
           >
             <div className="w-full overflow-hidden rounded-2xl shadow-2xl">
@@ -602,8 +729,8 @@ const MessageInput = ({
                 searchDisabled={false}
                 skinTonesDisabled={false}
                 lazyLoadEmojis
-                width={pickerSize.width}
-                height={pickerSize.height}
+                width={emojiPosition.width}
+                height={emojiPosition.height}
                 previewConfig={{
                   showPreview: false,
                 }}
