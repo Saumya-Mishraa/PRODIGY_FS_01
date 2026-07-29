@@ -41,39 +41,27 @@ const MessageInput = ({
    * On desktop:
    * - Keep the picker at a comfortable fixed width.
    */
-  useEffect(() => {
-    const measurePicker = () => {
-      const viewportWidth = window.innerWidth || 320;
-      const mobile = viewportWidth < 640;
+ useEffect(() => {
+  const measure = () => {
+    const viewportWidth = window.innerWidth;
 
-      setIsMobile(mobile);
+    // Keep picker safely inside the viewport on mobile.
+    // Desktop gets a comfortable 350px width.
+    if (viewportWidth <= 380) {
+      setPickerWidth(Math.max(280, viewportWidth - 24));
+    } else {
+      setPickerWidth(Math.min(350, viewportWidth - 24));
+    }
+  };
 
-      if (mobile) {
-        // Keep a small safe margin on both sides.
-        const mobileWidth = Math.min(
-          350,
-          Math.max(280, viewportWidth - 24)
-        );
+  measure();
 
-        setPickerWidth(mobileWidth);
-      } else {
-        const rowWidth =
-          inputRowRef.current?.offsetWidth || 350;
+  window.addEventListener("resize", measure);
 
-        setPickerWidth(
-          Math.min(350, Math.max(300, rowWidth))
-        );
-      }
-    };
-
-    measurePicker();
-
-    window.addEventListener("resize", measurePicker);
-
-    return () => {
-      window.removeEventListener("resize", measurePicker);
-    };
-  }, []);
+  return () => {
+    window.removeEventListener("resize", measure);
+  };
+}, []);
 
   /*
    * Clear timers when component unmounts.
@@ -533,58 +521,54 @@ const MessageInput = ({
 
       {/* Emoji Picker */}
       <AnimatePresence>
-        {showEmoji && (
-          <motion.div
-            initial={{
-              opacity: 0,
-              scale: 0.92,
-              y: 10,
-            }}
-            animate={{
-              opacity: 1,
-              scale: 1,
-              y: 0,
-            }}
-            exit={{
-              opacity: 0,
-              scale: 0.92,
-              y: 10,
-            }}
-            transition={{
-              type: "spring",
-              stiffness: 300,
-              damping: 24,
-            }}
-            className={`
-              z-[60]
-              overflow-hidden
-              rounded-xl
-              shadow-2xl
-              ${
-                isMobile
-                  ? "fixed bottom-[72px] left-1/2 -translate-x-1/2"
-                  : "absolute bottom-[72px] right-4"
-              }
-            `}
-          >
-            <EmojiPicker
-              onEmojiClick={handleEmojiClick}
-              theme="dark"
-              searchDisabled={false}
-              skinTonesDisabled={false}
-              lazyLoadEmojis
-              width={pickerWidth}
-              height={
-                isMobile
-                  ? Math.min(400, pickerWidth * 1.15)
-                  : Math.min(420, pickerWidth * 1.2)
-              }
-              previewConfig={{
-                showPreview: false,
-              }}
-            />
-          </motion.div>
-        )}
+      {showEmoji && (
+  <motion.div
+    initial={{
+      opacity: 0,
+      scale: 0.92,
+      y: 10,
+    }}
+    animate={{
+      opacity: 1,
+      scale: 1,
+      y: 0,
+    }}
+    exit={{
+      opacity: 0,
+      scale: 0.92,
+      y: 10,
+    }}
+    transition={{
+      type: "spring",
+      stiffness: 300,
+      damping: 24,
+    }}
+    className="
+      fixed
+      bottom-[72px]
+      left-1/2
+      -translate-x-1/2
+      z-[100]
+      w-[calc(100vw-24px)]
+      max-w-[350px]
+    "
+  >
+    <div className="w-full overflow-hidden rounded-2xl shadow-2xl">
+      <EmojiPicker
+        onEmojiClick={handleEmojiClick}
+        theme="dark"
+        searchDisabled={false}
+        skinTonesDisabled={false}
+        lazyLoadEmojis
+        width="100%"
+        height={Math.min(420, pickerWidth * 1.2)}
+        previewConfig={{
+          showPreview: false,
+        }}
+      />
+    </div>
+  </motion.div>
+)}
       </AnimatePresence>
     </div>
   );
