@@ -1,0 +1,132 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/*
+ * Velora theme system
+ * ---------------------------------------------------------------------
+ * Every color in the app is expressed as Tailwind tokens (bg, sidebar,
+ * chat, ember, amber, lavender, ink, muted, online — see
+ * tailwind.config.js) that resolve through the CSS custom properties
+ * below. Switching themes is just swapping the `data-theme` attribute
+ * on <html>; every component re-colors automatically, no JS needed.
+ *
+ * Values are stored as space-separated RGB triplets ("R G B") so
+ * Tailwind's opacity modifiers (bg-ember/40, text-ink/80, ...) keep
+ * working via rgb(var(--x) / <alpha-value>).
+ *
+ * To add a new theme: copy a block, give it a new [data-theme="id"]
+ * selector, adjust the values, then register it in
+ * client/src/context/ThemeContext.jsx.
+ */
+
+:root,
+[data-theme="nebula-ember"] {
+  --color-bg: 9 10 15;
+  --color-sidebar: 16 18 24;
+  --color-chat: 19 21 28;
+  --color-accent: 255 107 74;
+  --color-accent-2: 255 184 107;
+  --color-accent-3: 181 140 255;
+  --color-ink: 244 241 234;
+  --color-muted: 133 136 149;
+  --color-online: 139 226 139;
+  --color-avatar-1: 255 107 74;
+  --color-avatar-2: 255 184 107;
+  --color-avatar-3: 181 140 255;
+  --color-avatar-4: 139 226 139;
+  --color-avatar-5: 107 165 255;
+}
+
+[data-theme="sakura-dream"] {
+  --color-bg: 20 11 20;
+  --color-sidebar: 29 18 32;
+  --color-chat: 34 21 39;
+  --color-accent: 255 111 165;
+  --color-accent-2: 255 182 217;
+  --color-accent-3: 201 156 255;
+  --color-ink: 247 239 245;
+  --color-muted: 163 141 165;
+  --color-online: 141 226 189;
+  --color-avatar-1: 255 111 165;
+  --color-avatar-2: 255 182 217;
+  --color-avatar-3: 201 156 255;
+  --color-avatar-4: 141 226 189;
+  --color-avatar-5: 255 154 158;
+}
+
+[data-theme="ocean-pulse"] {
+  --color-bg: 6 11 20;
+  --color-sidebar: 10 19 31;
+  --color-chat: 13 24 38;
+  --color-accent: 58 160 255;
+  --color-accent-2: 95 208 255;
+  --color-accent-3: 124 147 255;
+  --color-ink: 233 244 255;
+  --color-muted: 124 152 168;
+  --color-online: 95 226 170;
+  --color-avatar-1: 58 160 255;
+  --color-avatar-2: 95 208 255;
+  --color-avatar-3: 124 147 255;
+  --color-avatar-4: 95 226 170;
+  --color-avatar-5: 158 122 255;
+}
+
+[data-theme="midnight-aurora"] {
+  --color-bg: 5 7 10;
+  --color-sidebar: 10 14 20;
+  --color-chat: 13 18 25;
+  --color-accent: 95 226 184;
+  --color-accent-2: 79 168 255;
+  --color-accent-3: 168 124 255;
+  --color-ink: 236 246 240;
+  --color-muted: 126 139 146;
+  --color-online: 111 226 154;
+  --color-avatar-1: 95 226 184;
+  --color-avatar-2: 79 168 255;
+  --color-avatar-3: 168 124 255;
+  --color-avatar-4: 111 226 154;
+  --color-avatar-5: 255 154 158;
+}
+
+html, body, #root {
+  height: 100%;
+}
+
+body {
+  @apply bg-bg text-ink font-body;
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Smooth, premium color transitions whenever the active theme changes.
+   Scoped to color-related properties only (never layout) so it never
+   fights with Framer Motion's own transform/opacity animations. */
+body,
+body * {
+  transition: background-color 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    border-color 0.5s cubic-bezier(0.22, 1, 0.36, 1),
+    color 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    fill 0.4s cubic-bezier(0.22, 1, 0.36, 1),
+    box-shadow 0.5s cubic-bezier(0.22, 1, 0.36, 1);
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: rgb(var(--color-accent) / 0.25);
+  border-radius: 8px;
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}
