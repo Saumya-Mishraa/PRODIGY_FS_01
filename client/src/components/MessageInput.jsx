@@ -1,134 +1,86 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useRef, useState, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { Paperclip, Send, Smile, X, AlertCircle } from "lucide-react";
-import Picker from "@emoji-mart/react";
-import data from "@emoji-mart/data";
+import {
+  Paperclip,
+  Send,
+  Smile,
+  X,
+  AlertCircle,
+} from "lucide-react";
+import EmojiPicker from "emoji-picker-react";
 import api from "../services/api.js";
 
-const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
+const MessageInput = ({
+  onSend,
+  onTyping,
+  replyTo,
+  onCancelReply,
+}) => {
   const [text, setText] = useState("");
   const [showEmoji, setShowEmoji] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [uploadProgress, setUploadProgress] = useState(0);
   const [uploadError, setUploadError] = useState("");
   const [sendPulse, setSendPulse] = useState(false);
-  const [isMobile, setIsMobile] = useState(false);
-  const [pickerSize, setPickerSize] = useState({
-    width: 320,
-    height: 360,
-  });
+  const [pickerWidth, setPickerWidth] = useState(300);
 
   const fileRef = useRef(null);
-  const inputRef = useRef(null);
-  const inputRowRef = useRef(null);
   const typingTimeout = useRef(null);
+  const inputRowRef = useRef(null);
   const errorTimeout = useRef(null);
+  const sendPulseTimeout = useRef(null);
 
-  const MAX_FILE_MB = 15;
-
-  /* -------------------------------------------------------
-     Detect mobile viewport
-  ------------------------------------------------------- */
+  /*
+   * Keep emoji picker within the available viewport width.
+   * This prevents horizontal overflow on small mobile screens.
+   */
   useEffect(() => {
-    const updateMobile = () => {
-      setIsMobile(window.innerWidth < 640);
+    const measurePicker = () => {
+      const viewportWidth = window.innerWidth || 320;
+      const rowWidth =
+        inputRowRef.current?.offsetWidth || viewportWidth;
+
+      const availableWidth = Math.min(
+        rowWidth,
+        viewportWidth - 24
+      );
+
+      setPickerWidth(
+        Math.max(
+          260,
+          Math.min(350, availableWidth)
+        )
+      );
     };
 
-    updateMobile();
+    measurePicker();
 
-    window.addEventListener("resize", updateMobile);
+    window.addEventListener(
+      "resize",
+      measurePicker
+    );
 
     return () => {
-      window.removeEventListener("resize", updateMobile);
+      window.removeEventListener(
+        "resize",
+        measurePicker
+      );
     };
   }, []);
 
-  /* -------------------------------------------------------
-     Responsive emoji picker sizing
-  ------------------------------------------------------- */
-  useEffect(() => {
-    const updatePickerSize = () => {
-      const viewportWidth = window.innerWidth;
-      const viewportHeight = window.innerHeight;
-
-      if (viewportWidth < 640) {
-        const width = Math.min(
-          360,
-          Math.max(280, viewportWidth - 24)
-        );
-
-        const height = Math.min(
-          390,
-          Math.max(300, viewportHeight * 0.48)
-        );
-
-        setPickerSize({
-          width,
-          height,
-        });
-      } else if (viewportWidth < 1024) {
-        setPickerSize({
-          width: 340,
-          height: 400,
-        });
-      } else {
-        setPickerSize({
-          width: 350,
-          height: 420,
-        });
-      }
-    };
-
-    updatePickerSize();
-
-    window.addEventListener("resize", updatePickerSize);
-    window.addEventListener("orientationchange", updatePickerSize);
-
-    return () => {
-      window.removeEventListener("resize", updatePickerSize);
-      window.removeEventListener("orientationchange", updatePickerSize);
-    };
-  }, []);
-
-  /* -------------------------------------------------------
-     Cleanup
-  ------------------------------------------------------- */
+  /*
+   * Clear timers when component unmounts.
+   */
   useEffect(() => {
     return () => {
-      clearTimeout(typingTimeout.current);
       clearTimeout(errorTimeout.current);
+      clearTimeout(typingTimeout.current);
+      clearTimeout(sendPulseTimeout.current);
     };
   }, []);
 
-  /* -------------------------------------------------------
-     Escape / Back behaviour
-     If emoji picker is open, close it first.
-  ------------------------------------------------------- */
-  useEffect(() => {
-    if (!showEmoji) return;
-
-    const handleKeyDown = (e) => {
-      if (e.key === "Escape") {
-        setShowEmoji(false);
-
-        setTimeout(() => {
-          inputRef.current?.focus();
-        }, 50);
-      }
-    };
-
-    window.addEventListener("keydown", handleKeyDown);
-
-    return () => {
-      window.removeEventListener("keydown", handleKeyDown);
-    };
-  }, [showEmoji]);
-
-  /* -------------------------------------------------------
-     Error helper
-  ------------------------------------------------------- */
-  const flashError = (msg) => {
-    setUploadError(msg);
+  const flashError = (message) => {
+    setUploadError(message);
 
     clearTimeout(errorTimeout.current);
 
@@ -137,11 +89,8 @@ const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
     }, 5000);
   };
 
-  /* -------------------------------------------------------
-     Text input
-  ------------------------------------------------------- */
-  const handleChange = (e) => {
-    const value = e.target.value;
+  const handleChange = (event) => {
+    const value = event.target.value;
 
     setText(value);
 
@@ -149,138 +98,92 @@ const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
 
     clearTimeout(typingTimeout.current);
 
+    if (!value.trim()) {
+      onTyping?.(false);
+      return;
+    }
+
     typingTimeout.current = setTimeout(() => {
       onTyping?.(false);
     }, 1200);
   };
 
-  /* -------------------------------------------------------
-     Emoji selection
-     Inserts at the last known cursor position and keeps
-     the picker open so multiple emoji can be chosen in a row,
-     exactly like WhatsApp / Telegram.
-  ------------------------------------------------------- */
   const handleEmojiClick = (emojiData) => {
-    const emojiChar = emojiData?.native || emojiData?.emoji || "";
-
-    setText((currentText) => {
-      const input = inputRef.current;
-
-      if (!input) {
-        return currentText + emojiChar;
-      }
-
-      const start = input.selectionStart ?? currentText.length;
-      const end = input.selectionEnd ?? currentText.length;
-
-      const nextText =
-        currentText.slice(0, start) +
-        emojiChar +
-        currentText.slice(end);
-
-      /*
-        Restore cursor right after the inserted emoji on the
-        next tick so consecutive picks land in the right spot.
-      */
-      requestAnimationFrame(() => {
-        const pos = start + emojiChar.length;
-        input.setSelectionRange?.(pos, pos);
-      });
-
-      return nextText;
-    });
+    setText(
+      (currentText) =>
+        currentText + emojiData.emoji
+    );
   };
 
-  /* -------------------------------------------------------
-     Open emoji picker
-  ------------------------------------------------------- */
-  const openEmojiPicker = () => {
-    const nextState = !showEmoji;
-
-    setShowEmoji(nextState);
-
-    if (nextState) {
-      /*
-        Hide native keyboard when opening emoji picker.
-        blur() is intentionally used only here.
-      */
-      inputRef.current?.blur();
-    } else {
-      /*
-        Closing emoji picker returns focus to input,
-        which opens the native mobile keyboard.
-      */
-      setTimeout(() => {
-        inputRef.current?.focus();
-      }, 80);
-    }
-  };
-
-  /* -------------------------------------------------------
-     Submit text message
-  ------------------------------------------------------- */
   const submit = () => {
-    if (!text.trim() || uploading) return;
+    const trimmedText = text.trim();
+
+    if (!trimmedText || uploading) {
+      return;
+    }
 
     onSend({
       type: "text",
-      text: text.trim(),
+      text: trimmedText,
       replyTo: replyTo?._id || null,
     });
 
     setText("");
-
     setShowEmoji(false);
+
+    clearTimeout(typingTimeout.current);
+    onTyping?.(false);
 
     setSendPulse(true);
 
-    setTimeout(() => {
+    clearTimeout(sendPulseTimeout.current);
+
+    sendPulseTimeout.current = setTimeout(() => {
       setSendPulse(false);
     }, 220);
 
     onCancelReply?.();
-
-    /*
-      Keep input focused after sending.
-      Native keyboard stays open on mobile,
-      exactly like modern chat apps.
-    */
-    requestAnimationFrame(() => {
-      inputRef.current?.focus();
-    });
   };
 
-  /* -------------------------------------------------------
-     Enter = Send
-     Shift + Enter = New line
-  ------------------------------------------------------- */
-  const handleKeyDown = (e) => {
-    if (e.key === "Enter" && !e.shiftKey) {
-      e.preventDefault();
+  const handleKeyDown = (event) => {
+    /*
+     * Enter = Send
+     * Shift + Enter = New line
+     */
+    if (
+      event.key === "Enter" &&
+      !event.shiftKey
+    ) {
+      event.preventDefault();
       submit();
     }
   };
 
-  /* -------------------------------------------------------
-     File upload
-  ------------------------------------------------------- */
-  const handleFile = async (e) => {
-    const file = e.target.files?.[0];
+  const MAX_FILE_MB = 15;
 
-    if (!file) return;
+  const handleFile = async (event) => {
+    const file = event.target.files?.[0];
 
-    if (file.size > MAX_FILE_MB * 1024 * 1024) {
+    if (!file) {
+      return;
+    }
+
+    if (
+      file.size >
+      MAX_FILE_MB * 1024 * 1024
+    ) {
       flashError(
         `"${file.name}" is over the ${MAX_FILE_MB}MB limit.`
       );
 
-      e.target.value = "";
+      event.target.value = "";
       return;
     }
 
     setUploading(true);
     setUploadProgress(0);
     setUploadError("");
+    setShowEmoji(false);
 
     try {
       const formData = new FormData();
@@ -292,22 +195,29 @@ const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
         formData,
         {
           headers: {
-            "Content-Type": "multipart/form-data",
+            "Content-Type":
+              "multipart/form-data",
           },
 
-          onUploadProgress: (evt) => {
-            if (!evt.total) return;
+          onUploadProgress: (progressEvent) => {
+            if (!progressEvent.total) {
+              return;
+            }
 
             setUploadProgress(
               Math.round(
-                (evt.loaded / evt.total) * 100
+                (progressEvent.loaded /
+                  progressEvent.total) *
+                  100
               )
             );
           },
         }
       );
 
-      const type = file.type.startsWith("image/")
+      const type = file.type.startsWith(
+        "image/"
+      )
         ? "image"
         : "file";
 
@@ -318,16 +228,9 @@ const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
       });
 
       onCancelReply?.();
-
-      /*
-        Return focus to input after attachment upload.
-      */
-      requestAnimationFrame(() => {
-        inputRef.current?.focus();
-      });
-    } catch (err) {
+    } catch (error) {
       const serverMessage =
-        err?.response?.data?.message;
+        error?.response?.data?.message;
 
       flashError(
         serverMessage ||
@@ -337,33 +240,16 @@ const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
       setUploading(false);
       setUploadProgress(0);
 
-      e.target.value = "";
+      /*
+       * Allows the user to select the same file again.
+       */
+      event.target.value = "";
     }
   };
 
   return (
-    <div
-      className="
-        relative
-        w-full
-        max-w-full
-        border-t border-white/5
-        bg-sidebar/60
-        backdrop-blur
-        px-2.5 py-2
-        xs:px-3 xs:py-2.5
-        sm:px-4 sm:py-3
-        overflow-hidden
-      "
-      style={{
-        paddingBottom: "max(env(safe-area-inset-bottom, 0px), 0.5rem)",
-        paddingLeft: "max(env(safe-area-inset-left, 0px), 0.625rem)",
-        paddingRight: "max(env(safe-area-inset-right, 0px), 0.625rem)",
-      }}
-    >
-      {/* -------------------------------------------------
-          Upload Error
-      ------------------------------------------------- */}
+    <div className="relative flex-shrink-0 border-t border-white/5 bg-sidebar/60 backdrop-blur px-2.5 py-2.5 sm:px-4 sm:py-3">
+      {/* Upload Error */}
       <AnimatePresence>
         {uploadError && (
           <motion.div
@@ -382,7 +268,7 @@ const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
               height: 0,
             }}
             className="
-              flex items-start gap-2
+              flex items-center gap-2
               bg-red-500/10
               border border-red-500/20
               text-red-300
@@ -390,12 +276,12 @@ const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
               rounded-lg
               px-3 py-2
               mb-2
-              max-w-full
+              overflow-hidden
             "
           >
             <AlertCircle
               size={14}
-              className="flex-shrink-0 mt-0.5"
+              className="flex-shrink-0"
             />
 
             <span className="flex-1 min-w-0 break-words">
@@ -403,12 +289,19 @@ const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
             </span>
 
             <button
-              onClick={() => setUploadError("")}
+              type="button"
+              onClick={() =>
+                setUploadError("")
+              }
+              aria-label="Dismiss error"
               className="
                 flex-shrink-0
+                p-1
+                rounded-full
+                hover:bg-white/10
                 hover:text-red-100
+                transition-colors
               "
-              aria-label="Dismiss error"
             >
               <X size={12} />
             </button>
@@ -416,20 +309,9 @@ const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
         )}
       </AnimatePresence>
 
-      {/* -------------------------------------------------
-          Upload Progress
-      ------------------------------------------------- */}
+      {/* Upload Progress */}
       {uploading && (
-        <div
-          className="
-            h-0.5
-            w-full
-            bg-white/5
-            rounded-full
-            mb-2
-            overflow-hidden
-          "
-        >
+        <div className="h-0.5 bg-white/5 rounded-full mb-2 overflow-hidden">
           <motion.div
             className="h-full bg-ember"
             initial={{
@@ -445,9 +327,7 @@ const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
         </div>
       )}
 
-      {/* -------------------------------------------------
-          Reply Preview
-      ------------------------------------------------- */}
+      {/* Reply Preview */}
       <AnimatePresence>
         {replyTo && (
           <motion.div
@@ -464,43 +344,36 @@ const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
               y: 8,
             }}
             className="
-              flex items-start
-              justify-between
-              gap-2
+              flex items-center gap-2
               bg-chat
               rounded-lg
               px-3 py-2
               mb-2
-              border-l-2
-              border-ember
-              max-w-full
+              border-l-2 border-ember
+              min-w-0
             "
           >
-            <div
-              className="
-                text-sm
-                text-muted
-                min-w-0
-                pr-2
-                line-clamp-2
-                break-words
-              "
-            >
+            <div className="flex-1 min-w-0 text-sm text-muted truncate">
               Replying to{" "}
-              <span className="text-ink break-words">
-                {replyTo.text || "attachment"}
+              <span className="text-ink">
+                {replyTo.text ||
+                  "attachment"}
               </span>
             </div>
 
             <button
+              type="button"
               onClick={onCancelReply}
+              aria-label="Cancel reply"
               className="
+                flex-shrink-0
+                p-1
+                rounded-full
                 text-muted
                 hover:text-ink
-                flex-shrink-0
-                mt-0.5
+                hover:bg-white/5
+                transition-colors
               "
-              aria-label="Cancel reply"
             >
               <X size={14} />
             </button>
@@ -508,43 +381,42 @@ const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
         )}
       </AnimatePresence>
 
-      {/* -------------------------------------------------
-          Main Input Row
-      ------------------------------------------------- */}
+      {/* Input Row */}
       <div
         ref={inputRowRef}
         className="
-          flex
-          items-end
+          relative
+          flex items-end
           gap-1
-          xs:gap-1.5
           sm:gap-2
-          w-full
-          max-w-full
+          min-w-0
         "
       >
-        {/* File Upload */}
+        {/* File Upload Button */}
         <button
           type="button"
           onClick={() =>
             fileRef.current?.click()
           }
           disabled={uploading}
+          aria-label="Attach file"
+          title="Attach file"
           className="
-            p-2
+            flex-shrink-0
+            flex items-center justify-center
+            w-9 h-9
+            sm:w-10 sm:h-10
             rounded-full
             text-muted
             hover:text-ember
             hover:bg-white/5
-            transition-colors
-            flex-shrink-0
+            active:bg-white/10
             disabled:opacity-40
-            touch-manipulation
+            disabled:cursor-not-allowed
+            transition-colors
           "
-          title="Attach file"
-          aria-label="Attach file"
         >
-          <Paperclip size={20} className="w-5 h-5" />
+          <Paperclip size={19} />
         </button>
 
         <input
@@ -554,37 +426,22 @@ const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
           onChange={handleFile}
         />
 
-        {/* -------------------------------------------------
-            Text Input
-        ------------------------------------------------- */}
+        {/* Text Input + Emoji Picker */}
         <div className="relative flex-1 min-w-0">
           <textarea
-            ref={inputRef}
             value={text}
             onChange={handleChange}
             onKeyDown={handleKeyDown}
-            onFocus={() => {
-              /*
-                When user taps the input,
-                emoji picker should close and
-                native mobile keyboard should open.
-              */
-              if (showEmoji) {
-                setShowEmoji(false);
-              }
-            }}
             rows={1}
-            inputMode="text"
-            enterKeyHint="send"
-            autoComplete="off"
-            autoCorrect="on"
-            spellCheck="true"
+            disabled={uploading}
             placeholder={
               uploading
                 ? `Uploading… ${uploadProgress}%`
                 : "Type a message"
             }
+            aria-label="Message"
             className="
+              block
               w-full
               resize-none
               bg-chat
@@ -592,8 +449,8 @@ const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
               focus:border-ember/50
               outline-none
               rounded-2xl
-              px-3 py-2.5
-              xs:px-3.5
+              px-3
+              py-2.5
               sm:px-4
               text-sm
               sm:text-base
@@ -601,166 +458,132 @@ const MessageInput = ({ onSend, onTyping, replyTo, onCancelReply }) => {
               placeholder:text-muted
               transition-colors
               max-h-32
-              min-h-[42px]
-              leading-relaxed
-              break-words
+              overflow-y-auto
+              disabled:opacity-60
             "
           />
+
+          {/* Emoji Picker */}
+          <AnimatePresence>
+            {showEmoji && (
+              <motion.div
+                initial={{
+                  opacity: 0,
+                  scale: 0.9,
+                  y: 10,
+                }}
+                animate={{
+                  opacity: 1,
+                  scale: 1,
+                  y: 0,
+                }}
+                exit={{
+                  opacity: 0,
+                  scale: 0.9,
+                  y: 10,
+                }}
+                transition={{
+                  type: "spring",
+                  stiffness: 300,
+                  damping: 24,
+                }}
+                className="
+                  absolute
+                  bottom-[calc(100%+10px)]
+                  right-0
+                  z-50
+                  max-w-[calc(100vw-1.5rem)]
+                  overflow-hidden
+                  rounded-xl
+                  shadow-2xl
+                "
+              >
+                <EmojiPicker
+                  onEmojiClick={
+                    handleEmojiClick
+                  }
+                  theme="dark"
+                  searchDisabled={false}
+                  skinTonesDisabled={false}
+                  lazyLoadEmojis
+                  width={pickerWidth}
+                  height={Math.min(
+                    420,
+                    pickerWidth * 1.2
+                  )}
+                  previewConfig={{
+                    showPreview: false,
+                  }}
+                />
+              </motion.div>
+            )}
+          </AnimatePresence>
         </div>
 
-        {/* -------------------------------------------------
-            Emoji Button
-        ------------------------------------------------- */}
+        {/* Emoji Button */}
         <button
           type="button"
-          onClick={openEmojiPicker}
+          onClick={() =>
+            setShowEmoji(
+              (state) => !state
+            )
+          }
+          disabled={uploading}
+          aria-label="Open emoji picker"
+          title="Emoji"
           className={`
-            p-2
+            flex-shrink-0
+            flex items-center justify-center
+            w-9 h-9
+            sm:w-10 sm:h-10
             rounded-full
             transition-colors
-            flex-shrink-0
-            touch-manipulation
+            disabled:opacity-40
+            disabled:cursor-not-allowed
             ${
               showEmoji
                 ? "text-ember bg-white/10"
                 : "text-muted hover:text-amber hover:bg-white/5"
             }
           `}
-          title="Emoji"
-          aria-label="Emoji"
-          aria-expanded={showEmoji}
         >
-          <Smile size={20} className="w-5 h-5" />
+          <Smile size={19} />
         </button>
 
-        {/* -------------------------------------------------
-            Send Button
-        ------------------------------------------------- */}
+        {/* Send Button */}
         <motion.button
           type="button"
           animate={{
             scale: sendPulse ? 0.85 : 1,
           }}
           onClick={submit}
-          disabled={!text.trim() || uploading}
+          disabled={
+            !text.trim() || uploading
+          }
+          aria-label="Send message"
+          title="Send"
           className="
-            p-2.5
+            flex-shrink-0
+            flex items-center justify-center
+            w-9 h-9
+            sm:w-10 sm:h-10
             rounded-full
             bg-ember
             text-bg
             hover:brightness-110
+            active:scale-95
             transition-all
             disabled:opacity-40
-            flex-shrink-0
-            touch-manipulation
+            disabled:cursor-not-allowed
           "
-          title="Send"
-          aria-label="Send message"
         >
-          <Send size={18} className="w-[18px] h-[18px]" />
+          <Send size={17} />
         </motion.button>
       </div>
-
-      {/* -------------------------------------------------
-          Emoji Picker
-          IMPORTANT:
-          It is rendered outside the input's relative
-          container to prevent clipping and weird positioning.
-      ------------------------------------------------- */}
-      <AnimatePresence>
-        {showEmoji && (
-          <>
-            {isMobile && (
-              <motion.div
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 0.45 }}
-                exit={{ opacity: 0 }}
-                className="fixed inset-0 bg-black z-[9998]"
-                onClick={() => setShowEmoji(false)}
-              />
-            )}
-
-            <motion.div
-              initial={
-                isMobile
-                  ? { y: "100%" }
-                  : { opacity: 0, scale: 0.95 }
-              }
-              animate={
-                isMobile
-                  ? { y: 0 }
-                  : { opacity: 1, scale: 1 }
-              }
-              exit={
-                isMobile
-                  ? { y: "100%" }
-                  : { opacity: 0, scale: 0.95 }
-              }
-              transition={{
-                type: "spring",
-                stiffness: 300,
-                damping: 28,
-              }}
-              className={
-                isMobile
-                  ? `
-                    fixed
-                    left-0
-                    right-0
-                    bottom-0
-                    z-[9999]
-                    rounded-t-3xl
-                    overflow-hidden
-                    max-w-full
-                    flex
-                    justify-center
-                  `
-                  : `
-                    absolute
-                    bottom-14
-                    right-0
-                    z-50
-                    max-w-[calc(100vw-2rem)]
-                    overflow-hidden
-                    rounded-xl
-                    shadow-xl
-                  `
-              }
-              style={
-                isMobile
-                  ? {
-                      paddingBottom:
-                        "env(safe-area-inset-bottom, 0px)",
-                      width: "100%",
-                    }
-                  : undefined
-              }
-            >
-              <div
-                style={{
-                  width: pickerSize.width,
-                  maxWidth: "100%",
-                  height: pickerSize.height,
-                }}
-              >
-                <Picker
-                  data={data}
-                  theme="dark"
-                  previewPosition="none"
-                  skinTonePosition="none"
-                  navPosition="top"
-                  perLine={isMobile ? 8 : 9}
-                  emojiSize={22}
-                  dynamicWidth={true}
-                  onEmojiSelect={handleEmojiClick}
-                />
-              </div>
-            </motion.div>
-          </>
-        )}
-      </AnimatePresence>
     </div>
   );
 };
 
 export default MessageInput;
+
+
